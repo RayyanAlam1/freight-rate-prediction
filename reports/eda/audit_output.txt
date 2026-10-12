@@ -1,0 +1,160 @@
+C:\Users\Stingray Tec\Desktop\Model Training\eda.py:329: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  peak = daily[quarter_end - pd.Timedelta(days=4) : quarter_end].max()
+
+========================================================================================
+1. Schema, ranges, missing values, duplicates
+========================================================================================
+train-test : (48000, 14)  2025-01-01 to 2025-10-31
+validation : (12000, 13)  2025-11-01 to 2025-12-31
+december   : (31, 7)  columns=['pickup', 'delivery', 'distance', 'equipment', 'weight', 'date', 'predicted_rate']
+columns missing from the December chart inputs: ['delivery_lat', 'delivery_lon', 'market_index', 'pickup_lat', 'pickup_lon', 'quote_signal']
+
+missing values (count):
+              train  validation
+market_index    374    249.0000
+weight          300    165.0000
+
+duplicate load_id      : train 0, validation 0
+duplicate feature rows : train 0, validation 0
+template ids match validation.csv in order: True
+
+numeric summary (train):
+                              min                   1%                  50%                  99%                  max
+pickup_lat                28.3576              28.3576              35.2948              44.3030              44.3030
+pickup_lon              -121.6985            -119.7953             -88.0892             -69.5000             -69.5000
+delivery_lat              28.3576              28.3576              35.2948              44.3030              44.3030
+delivery_lon            -121.6985            -119.7953             -87.5287             -69.5000             -69.5000
+distance                  70.0000             121.8990             953.3000           3,029.3040           3,439.8000
+weight               -47,500.0000           9,801.9600          31,436.5000          47,500.0000          47,500.0000
+date          2025-01-01 00:00:00  2025-01-04 00:00:00  2025-05-31 00:00:00  2025-10-29 00:00:00  2025-10-31 00:00:00
+market_index               0.6764               0.7829               1.0558               1.4072               1.4678
+quote_signal               0.6923               1.3047               2.0558               2.8840               3.6103
+posted_rate               57.2200             327.1688           2,030.7600           5,972.8340          25,533.0000
+
+========================================================================================
+2. weight: negative, missing and capped values
+========================================================================================
+set                     train  validation
+negative %             0.6083      1.2083
+missing %              0.6250      1.3750
+min positive       5,000.0000  5,000.0000
+max               47,500.0000 47,500.0000
+at 47,500 cap %        2.5083      2.5083
+median positive   31,493.5000 31,323.5000
+median |negative| 31,821.5000 32,517.0000
+-> negatives have the same magnitude distribution as positives: a sign flip, fixed with abs().
+-> market_index missing %: train 0.78, validation 2.08
+
+========================================================================================
+3. Cities, lanes and distance
+========================================================================================
+cities: 72, distinct (city, lat, lon): 72 -> one coordinate per city
+cities in validation but never in train (8): ['Allentown', 'Charlotte', 'Chicago', 'Jackson', 'Knoxville', 'Laredo', 'Norfolk', 'San Diego']
+validation rows touching a new city: 1,447 (12.1%)
+validation rows on a lane never seen in train: 1,461 (12.2%)
+train      distance / straight-line: median 1.182, 1%-99% 1.130-1.404, max 9.6; rows at the 70-mile floor: 48
+validation distance / straight-line: median 1.182, 1%-99% 1.128-1.414, max 78.5; rows at the 70-mile floor: 21
+distance is recorded per load, not per lane: median within-lane spread 5.6%
+
+========================================================================================
+4. Target: posted_rate and corrupted labels
+========================================================================================
+posted_rate quantiles : [57.0, 327.0, 2031.0, 5973.0, 12855.0, 25533.0]
+rate/mile quantiles   : [0.33, 0.44, 1.67, 2.15, 3.18, 10.07, 14.13]
+structural model (distance, equipment, weight, market_index, city, linear trend) on clean rows: residual std 0.0232 log-points, median abs error 1.49%
+
+actual / expected rate: clean rows span 0.90x-1.13x
+  too low  :  337 rows (0.70%), 0.17x-0.44x
+  too high :  340 rows (0.71%), 2.24x-5.38x
+  corrupted labels per month: {1: 81, 2: 57, 3: 71, 4: 66, 5: 62, 6: 63, 7: 65, 8: 68, 9: 64, 10: 80}
+[figure] reports/eda/02_label_outliers.png
+
+========================================================================================
+5. quote_signal: three regimes
+========================================================================================
+Train, using labels: daily correlation between quote_signal and the actual rate per mile
+     start        end  days           regime  corr_with_actual_rate_per_mile
+2025-01-01 2025-03-31    90  tracks the rate                          0.9962
+2025-04-01 2025-05-31    61 mirrors the rate                         -0.9932
+2025-06-01 2025-06-30    30  tracks the rate                          0.9971
+2025-07-01 2025-07-31    31 mirrors the rate                         -0.9937
+2025-08-01 2025-08-31    31            noise                         -0.0276
+2025-09-01 2025-09-30    30  tracks the rate                          0.9969
+2025-10-01 2025-10-31    31 mirrors the rate                         -0.9937
+
+share of training rows per regime: {'tracks the rate': 0.495, 'mirrors the rate': 0.406, 'noise': 0.099}
+tracks regime : quote_signal / rate-per-mile = 0.9999 +/- 0.0104
+mirrors regime: quote_signal = 4.149 -0.999 x rate-per-mile (a reflection around ~2.07 $/mile)
+
+Label-free view (works on validation): how quote_signal relates to the other features
+                              tracks the rate  mirrors the rate      noise  VALIDATION Nov  VALIDATION Dec
+rows                              23,744.0000       19,497.0000 4,759.0000      5,836.0000      6,164.0000
+corr with expected rate/mile           0.9781           -0.9795    -0.0195          0.0003         -0.0165
+corr with log(distance)               -0.7724            0.8134     0.0181          0.0090          0.0125
+median Dry Van                         2.0218            2.0719     2.0584          2.0593          2.0469
+median Flatbed                         2.2130            1.9148     2.0341          2.0552          2.0457
+median Reefer                          2.2966            1.8160     2.0537          2.0563          2.0476
+mean                                   2.1689            1.9353     2.0522          2.0553          2.0476
+std                                    0.2812            0.2659     0.2227          0.2203          0.2193
+validation daily correlation with expected rate/mile: min -0.22, median 0.00, max 0.19 over 61 days
+-> in validation quote_signal behaves exactly like the August 'noise' regime.
+[figure] reports/eda/01_quote_signal_regimes.png
+
+========================================================================================
+6. Time structure: market_index, trend and the quarter-end ramp
+========================================================================================
+market_index is a daily series: within-day std 0.025 vs between-day std 0.167
+  -> missing values can be filled with that day's median
+  by weekday (Mon..Sun), train: [0.96, 1.035, 1.108, 1.135, 1.086, 1.005, 0.944]
+  daily level: train 0.77-1.40, validation 0.82-1.05 (inside the training range)
+  elasticity of rate to market_index: 0.152
+  linear trend in rate: +8.0% per year
+
+median residual (%) of the structural model by month and equipment:
+date           1       2      3       4       5      6       7       8      9       10
+equipment                                                                             
+Dry Van   -0.0100 -0.3500 0.7500 -0.4500 -0.0700 1.2200 -0.4700 -1.0900 0.3700 -0.0500
+Flatbed   -0.9900 -1.1200 2.4900 -1.3700 -0.8600 2.8000 -1.4100 -1.6300 2.5300 -0.9000
+Reefer    -0.2300 -0.6200 1.4700 -0.8900 -0.3300 2.1700 -0.9900 -1.4900 1.3000 -0.5900
+
+median residual (%) by days until quarter end:
+to_quarter_end  (-1, 2]  (2, 5]  (5, 10]  (10, 15]  (15, 20]  (20, 25]  (25, 30]  (30, 45]  (45, 92]
+equipment                                                                                           
+Dry Van          2.3500  1.5600   1.3500    0.7600    0.3100    0.1300   -0.1600   -0.4400   -0.3100
+Flatbed          6.8400  5.5000   4.4800    2.9100    1.4000    0.5400   -0.2700   -1.2000   -1.2000
+Reefer           4.3900  3.6100   2.7200    1.8000    1.0100    0.3200   -0.2900   -0.8300   -0.7500
+-> rates ramp up over the last ~25 days of every quarter and reset on day one of the next;
+   Flatbed and Reefer ramp harder than Dry Van. December is a quarter end.
+[figure] reports/eda/03_quarter_end_ramp.png
+[figure] reports/eda/04_market_index.png
+
+========================================================================================
+7. City effects are regional, so coordinates generalise to the new cities
+========================================================================================
+city effect on rate: -3.7% to +3.1% (std 1.8%); correlation with latitude -0.81
+cheapest: {'Syracuse': -3.7, 'Buffalo': -3.2, 'Albany': -3.1, 'Detroit': -3.1, 'Toledo': -2.6}
+dearest : {'Oklahoma City': 3.1, 'Houston': 2.9, 'Dallas': 2.9, 'Tulsa': 2.8, 'Shreveport': 2.7}
+[figure] reports/eda/05_city_effects.png
+
+========================================================================================
+8. Train vs validation drift (adversarial validation: can a classifier tell them apart?)
+========================================================================================
+AUC 0.561  load features only (distance, equipment, weight, coordinates)
+AUC 0.503    same, without rows touching a new city
+AUC 0.813  load features + market_index
+AUC 0.739  load features + quote_signal
+(0.5 = indistinguishable. The loads themselves do not drift apart from the new cities;
+ the drift is in the two market signals, and in time itself.)
+
+feature medians and 5%-95% ranges:
+                                 p5      median         p95
+distance     train         236.1000    953.3000  2,562.3000
+             validation    234.0900    953.6000  2,592.9300
+weight       train      18,005.9500 31,496.0000 44,965.2000
+             validation 18,003.8000 31,332.0000 44,689.6000
+market_index train           0.8360      1.0560      1.3660
+             validation      0.8140      0.9230      1.0410
+quote_signal train           1.6060      2.0560      2.5510
+             validation      1.6920      2.0510      2.4140
+equipment mix train: {'Dry Van': 0.567, 'Reefer': 0.251, 'Flatbed': 0.182}
+equipment mix val  : {'Dry Van': 0.565, 'Reefer': 0.254, 'Flatbed': 0.181}

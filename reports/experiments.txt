@@ -1,0 +1,80 @@
+training rows: 48,000 (677 corrupted labels excluded from fitting and scoring)
+share of validation.csv rows touching a city absent from training: 12.1%
+
+Forward folds (each trains on everything before its validation block):
+  May-Jun  train rows 15,055 | validation rows  9,696 (21% touch a hidden city) | hidden: Jacksonville, Nashville, Detroit, Greensboro, Baton Rouge, Dayton, Houston
+  Aug-Sep  train rows 26,656 | validation rows  9,429 (21% touch a hidden city) | hidden: San Francisco, Washington, New York, Philadelphia, Bakersfield, Tucson, Harrisburg
+  Oct      train rows 32,792 | validation rows  4,853 (23% touch a hidden city) | hidden: Lexington, Fresno, Toledo, Fort Wayne, Shreveport, Reno, Savannah
+
+====================================================================================================
+PART 1  The same three models scored by a random split and by the forward folds
+====================================================================================================
+                                      random 5-fold MAPE %  forward folds MAPE %
+1: final model (no quote_signal)                      1.31                  1.42
+2: same + quote_signal + month                        1.15                  1.67
+3: LightGBM alone, no trend handling                  1.63                  2.83
+
+Forward-fold MAPE % by validation month
+(quote_signal regime: May mirrors, Jun tracks, Aug noise, Sep tracks, Oct mirrors; validation.csv is noise)
+                                      May  Jun  Aug  Sep  Oct
+1: final model (no quote_signal)     1.35 1.40 1.44 1.49 1.52
+2: same + quote_signal + month       1.22 2.05 2.09 1.31 1.52
+3: LightGBM alone, no trend handling 1.74 2.85 3.04 3.73 5.07
+
+====================================================================================================
+PART 2  Model comparison (forward folds, clean labels)
+====================================================================================================
+                                                     MAPE %  MAE $  RMSE $  MAPE seen cities  MAPE new cities  MAPE Oct check
+Baseline: median rate/mile per equipment x distance    8.67 174.16  239.32              8.50             9.92            8.06
+Baseline: median rate/mile per lane x distance         5.81 133.89  197.54              5.25             9.92            4.17
+Linear backbone alone                                  2.59  55.34   74.39              2.57             2.72            2.63
+LightGBM alone                                         2.83  66.03   89.99              2.83             2.89            5.07
+LightGBM alone + time index                            1.94  45.08   66.23              1.92             2.10            2.14
+LightGBM alone, linear leaves + time index             2.84  68.67  114.77              2.79             3.16            3.39
+FINAL: linear backbone + LightGBM residuals            1.42  33.49   48.54              1.41             1.54            1.52
+
+Final model, signed error by validation month (%; + means over-prediction):
+{'May': -0.17, 'Jun': -0.35, 'Aug': 0.77, 'Sep': 0.79, 'Oct': -0.86}
+
+====================================================================================================
+PART 3  Ablations of the final model: change one thing at a time
+====================================================================================================
+                                             MAPE %  MAE $  RMSE $  MAPE seen cities  MAPE new cities  MAPE Oct check
+FINAL model                                    1.42  33.49   48.54              1.41             1.54            1.52
+data: keep the corrupted labels in training    3.69  84.74  133.21              3.69             3.64            2.70
+data: leave negative weights as they are       1.41  33.30   48.27              1.40             1.53            1.53
+time: no trend in the backbone                 2.63  61.82   82.38              2.63             2.62            5.18
+time: no quarter-end ramp anywhere             1.75  41.70   63.15              1.74             1.85            1.43
+time: no market_index in the residual model    1.45  34.94   51.25              1.43             1.56            1.51
+place: no coordinates                          2.40  50.89   68.59              2.35             2.77            2.42
+place: city names instead of coordinates       1.47  34.49   50.11              1.36             2.29            1.55
+place: no straight-line distance               1.43  33.77   48.96              1.42             1.54            1.53
+signal: add quote_signal                       1.68  39.16   56.21              1.67             1.76            1.54
+
+====================================================================================================
+PART 4  Light tuning of the residual LightGBM (default: 31 leaves, 600 trees, learning rate 0.05)
+====================================================================================================
+                                            MAPE %  MAE $  RMSE $  MAPE seen cities  MAPE new cities  MAPE Oct check
+leaves= 15  trees= 600  learning_rate=0.05    1.42  33.50   48.44              1.41             1.52            1.54
+leaves= 15  trees=1500  learning_rate=0.02    1.42  33.51   48.49              1.41             1.52            1.54
+leaves= 31  trees= 600  learning_rate=0.05    1.42  33.49   48.54              1.41             1.54            1.52
+leaves= 31  trees=1500  learning_rate=0.02    1.41  33.37   48.48              1.40             1.53            1.52
+leaves= 63  trees= 600  learning_rate=0.05    1.43  33.67   49.07              1.40             1.58            1.51
+leaves= 63  trees=1500  learning_rate=0.02    1.43  33.65   48.89              1.40             1.58            1.51
+
+spread of headline MAPE across the grid: 1.414 to 1.426
+
+====================================================================================================
+Final model fitted on all training data: backbone coefficients (log scale)
+====================================================================================================
+log_distance         0.7432
+log_distance_sq      0.0097
+log_market_index     0.1528
+weight               0.0365
+weight_sq           -0.0011
+years_since_start    0.0720
+ramp_Dry Van         0.0242
+is_Flatbed           0.0719
+ramp_Flatbed         0.0768
+is_Reefer            0.1175
+ramp_Reefer          0.0494

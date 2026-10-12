@@ -1,0 +1,8 @@
+# Provided with the assessment (needed by score.py)
+matplotlib>=3.8,<4
+numpy>=1.26,<3
+pandas>=2.0,<3
+
+# Added for the solution
+scikit-learn>=1.4,<2
+lightgbm>=4.3,<5
