@@ -1,6 +1,6 @@
 # Freight rate prediction
 
-Take-home for the ML Engineer role. The task is to predict `posted_rate` for the Nov-Dec 2025 loads in `data/validation.csv` using the Jan-Oct loads in `data/train_test.csv`.
+The task is to predict `posted_rate` for the Nov-Dec 2025 loads in `data/validation.csv` using the Jan-Oct loads in `data/train_test.csv`.
 
 ## Files
 
@@ -22,7 +22,7 @@ I used Python 3.12. `model.py` takes a few seconds, the notebook runs top to bot
 
 ## Approach
 
-Short version, the plots and numbers are in the notebook.
+The script implements a two-stage hybrid regression model
 
 **Data issues**
 
@@ -53,6 +53,6 @@ Average over the three folds, scored on clean labels.
 
 ## Notes
 
-- The task doesn't say which metric is used, so I looked at MAPE, MAE and RMSE. The final model is best on all three.
+- The task doesn't say which metric to use, so I looked at MAPE, MAE and RMSE. The final model is best on all three.
 - The December chart file has no coordinates or `market_index`. Coordinates come from the city, `market_index` is that day's median in `validation.csv`.
-- Holiday effects can't be learned from Jan-Oct data, and the fold results show a bias of up to about 0.9% in single months, so something similar is possible in Nov-Dec.
+- Holiday effects can't be learned from Jan-Oct data, and the fold results show a bias of up to about 1% in single months, so something similar is possible in Nov-Dec.
